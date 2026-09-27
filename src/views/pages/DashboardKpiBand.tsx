@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { arr, cat, css, txt } from "../../runtime/template";
 import KpiBackdrop from "./KpiBackdrop";
+import { EventSwitch } from "../../future/ui";
 
 type Props = { v: any };
 
@@ -12,7 +13,7 @@ export default function DashboardKpiBand({ v }: Props) {
         <div style={{"position":"relative","display":"flex","alignItems":"center","gap":"12px","paddingBottom":"12px"}}>
           <div style={{"flex":"1","minWidth":"0"}}>
             <div style={{"fontFamily":"var(--mono)","fontSize":"9.5px","letterSpacing":"0.13em","color":"var(--on-accent-2)"}}>
-              {"CORE KPIS · ALWAYS IN VIEW"}
+              {"EXECUTIVE OVERVIEW · 167 DAYS TO RDS DUBLIN"}
             </div>
             <div style={{"fontSize":"30px","fontWeight":"600","letterSpacing":"-.9px","marginTop":"8px","color":"var(--ink)"}}>
               {txt(v.dashTitle)}
@@ -25,10 +26,11 @@ export default function DashboardKpiBand({ v }: Props) {
             {txt(v.kpiEditLabel)}
           </button>
         </div>
-        <div style={{"position":"relative","display":"flex","flexWrap":"wrap","gap":"16px","marginTop":"10px"}}>
+        <div style={{"position":"relative","marginTop":"4px"}}><EventSwitch fx={v.fx} /></div>
+        <div style={{"position":"relative","display":"flex","flexWrap":"wrap","gap":"16px","marginTop":"16px"}}>
           {arr(v.kpis).map((k: any, i4: number) => (
             <Fragment key={i4}>
-              <div className="ixc" style={{"position":"relative","flex":"1 1 180px","minWidth":"0","padding":"22px 22px 20px","background":"linear-gradient(160deg,rgba(255,255,255,.075),rgba(255,255,255,.015) 55%)","border":"1px solid rgba(255,255,255,.1)","borderRadius":"24px","color":"var(--ink)","backdropFilter":"blur(22px) saturate(1.5)","WebkitBackdropFilter":"blur(22px) saturate(1.5)","boxShadow":"inset 0 1px 0 rgba(255,255,255,.12),inset 0 -1px 0 rgba(0,0,0,.2),0 10px 30px rgba(0,0,0,.22)","transition":"transform .3s var(--ease),border-color .25s var(--ease),background .25s var(--ease)"}}>
+              <div className="ixc" style={{"position":"relative","flex":"1 1 calc(25% - 12px)","minWidth":"0","padding":"22px 22px 20px","background":"linear-gradient(160deg,rgba(255,255,255,.075),rgba(255,255,255,.015) 55%)","border":"1px solid rgba(255,255,255,.1)","borderRadius":"24px","color":"var(--ink)","backdropFilter":"blur(22px) saturate(1.5)","WebkitBackdropFilter":"blur(22px) saturate(1.5)","boxShadow":"inset 0 1px 0 rgba(255,255,255,.12),inset 0 -1px 0 rgba(0,0,0,.2),0 10px 30px rgba(0,0,0,.22)","transition":"transform .3s var(--ease),border-color .25s var(--ease),background .25s var(--ease)"}}>
                 <div style={{"display":"flex","alignItems":"flex-start","gap":"10px"}}>
                   <div style={{"flex":"1","minWidth":"0","fontSize":"10.5px","fontWeight":"500","letterSpacing":".14em","textTransform":"uppercase","color":"var(--faint)","overflow":"hidden","textOverflow":"ellipsis","whiteSpace":"nowrap","paddingTop":"4px"}}>
                     {txt(k?.label)}

@@ -283,7 +283,7 @@ export default function Activity({ v }: Props) {
         )}
         {v.act?.genericLens && (
           <>
-            <div style={{"display":"grid","gridTemplateColumns":"repeat(4,1fr)","gap":"12px"}}>
+            <div style={{"display":"grid","gridTemplateColumns":"repeat(5,minmax(0,1fr))","gap":"12px"}}>
               {arr(v.act?.kpis).map((k: any, i64: number) => (
                 <Fragment key={i64}>
                   <button onClick={k?.pick} style={css(k?.style)}>

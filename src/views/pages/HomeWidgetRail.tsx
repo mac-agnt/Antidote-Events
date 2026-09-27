@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import { arr, cat, css, txt } from "../../runtime/template";
+import { BriefingWidget, PrioritiesWidget } from "../../future/HomeWidgets";
 
 type Props = { v: any };
 
@@ -91,56 +92,8 @@ export default function HomeWidgetRail({ v }: Props) {
             </div>
           </>
         )}
-        {v.show?.inbox && (
-          <>
-            <div style={{"background":"var(--surface)","border":"1px solid var(--border)","borderRadius":"var(--card-r,18px)","backdropFilter":"blur(20px) saturate(1.3)","boxShadow":"var(--card-shadow)","transition":"transform .28s var(--ease),border-color .24s var(--ease),box-shadow .28s var(--ease)","padding":"20px 22px 10px"}}>
-              <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
-                <div style={{"flex":"1","fontSize":"13.5px","fontWeight":"500"}}>
-                  {"Action inbox"}
-                </div>
-                <span style={{"height":"24px","display":"flex","alignItems":"center","padding":"0 10px","background":"var(--surface-2)","border":"1px solid var(--border)","borderRadius":"var(--r-sm,9px)","fontFamily":"var(--mono)","fontSize":"11px","color":"var(--dim)"}}>
-                  {txt(v.inboxCount)}
-                </span>
-                {v.widgetEdit && (
-                  <>
-                    <button className="ixd" onClick={v.removeInbox} title="Remove widget" style={{"width":"24px","height":"24px","flex":"none","border":"1px solid var(--border)","borderRadius":"8px","background":"var(--surface-2)","color":"var(--dim)","cursor":"pointer","display":"flex","alignItems":"center","justifyContent":"center","transition":"color .2s var(--ease),border-color .2s var(--ease)"}}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                        <path d="M6 6l12 12 M18 6 6 18" />
-                      </svg>
-                    </button>
-                  </>
-                )}
-              </div>
-              <div style={{"marginTop":"8px"}}>
-                {arr(v.inboxTop).map((i: any, i18: number) => (
-                  <Fragment key={i18}>
-                    <div onClick={i?.open} style={{"display":"flex","gap":"12px","padding":"12px 0","borderTop":"1px solid var(--border)","cursor":"pointer","transition":"background .2s var(--ease),padding-left .24s var(--ease)"}}>
-                      <span style={css(cat("width:7px;height:7px;border-radius:2px;flex:none;margin-top:5px;background:", i?.dot))} />
-                      <div style={{"flex":"1","minWidth":"0"}}>
-                        <div style={{"fontSize":"13px","lineHeight":"1.4"}}>
-                          {txt(i?.title)}
-                        </div>
-                        <div style={{"fontSize":"11.5px","color":"var(--dim)","marginTop":"3px","overflow":"hidden","textOverflow":"ellipsis","whiteSpace":"nowrap"}}>
-                          {txt(i?.why)}
-                        </div>
-                      </div>
-                      <span style={{"flex":"none","fontFamily":"var(--mono)","fontSize":"10.5px","color":"var(--faint)"}}>
-                        {txt(i?.age)}
-                      </span>
-                    </div>
-                  </Fragment>
-                ))}
-                {v.inboxEmpty && (
-                  <>
-                    <div style={{"padding":"20px 0 24px","borderTop":"1px solid var(--border)","textAlign":"center","fontSize":"12.5px","color":"var(--dim)"}}>
-                      {"Nothing needs you."}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </>
-        )}
+        {v.show?.inbox && <PrioritiesWidget fx={v.fx} onRemove={v.widgetEdit ? v.removeInbox : undefined} />}
+        {v.show?.briefing && <BriefingWidget fx={v.fx} ask={v.askPulse} onRemove={v.widgetEdit ? v.removeBriefing : undefined} />}
         {v.show?.work && (
           <>
             <div style={{"background":"var(--surface)","border":"1px solid var(--border)","borderRadius":"var(--card-r,18px)","backdropFilter":"blur(20px) saturate(1.3)","boxShadow":"var(--card-shadow)","transition":"transform .28s var(--ease),border-color .24s var(--ease),box-shadow .28s var(--ease)","padding":"20px 22px 12px"}}>
@@ -220,41 +173,6 @@ export default function HomeWidgetRail({ v }: Props) {
             </div>
           </>
         )}
-        {v.show?.visits && (
-          <>
-            <div style={{"background":"var(--surface)","border":"1px solid var(--border)","borderRadius":"var(--card-r,18px)","backdropFilter":"blur(20px) saturate(1.3)","boxShadow":"var(--card-shadow)","transition":"transform .28s var(--ease),border-color .24s var(--ease),box-shadow .28s var(--ease)","padding":"20px 22px 10px"}}>
-              <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
-                <div style={{"flex":"1","fontSize":"13.5px","fontWeight":"500"}}>
-                  {"Site visits this week"}
-                </div>
-                {v.widgetEdit && (
-                  <>
-                    <button className="ixd" onClick={v.removeVisits} title="Remove widget" style={{"width":"24px","height":"24px","flex":"none","border":"1px solid var(--border)","borderRadius":"8px","background":"var(--surface-2)","color":"var(--dim)","cursor":"pointer","display":"flex","alignItems":"center","justifyContent":"center","transition":"color .2s var(--ease),border-color .2s var(--ease)"}}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                        <path d="M6 6l12 12 M18 6 6 18" />
-                      </svg>
-                    </button>
-                  </>
-                )}
-              </div>
-              <div style={{"marginTop":"6px"}}>
-                {arr(v.visitWidget).map((v: any, i21: number) => (
-                  <Fragment key={i21}>
-                    <div style={{"display":"flex","alignItems":"center","gap":"11px","padding":"11px 0","borderTop":"1px solid var(--border)"}}>
-                      <span style={css(cat("width:7px;height:7px;border-radius:2px;flex:none;background:", v?.dot))} />
-                      <span style={{"flex":"1","minWidth":"0","fontSize":"12.5px","overflow":"hidden","textOverflow":"ellipsis","whiteSpace":"nowrap"}}>
-                        {txt(v?.title)}
-                      </span>
-                      <span style={{"fontFamily":"var(--mono)","fontSize":"10.5px","color":"var(--faint)"}}>
-                        {txt(v?.when)}
-                      </span>
-                    </div>
-                  </Fragment>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
         {v.show?.activity && (
           <>
             <div style={{"background":"var(--surface-strong)","border":"1px solid var(--border)","borderRadius":"var(--card-r,18px)","backdropFilter":"blur(20px) saturate(1.3)","boxShadow":"var(--card-shadow)","transition":"transform .28s var(--ease),border-color .24s var(--ease),box-shadow .28s var(--ease)","padding":"20px 22px 10px"}}>
@@ -264,7 +182,7 @@ export default function HomeWidgetRail({ v }: Props) {
                 </div>
                 <span style={{"width":"6px","height":"6px","borderRadius":"2px","background":"var(--accent)"}} />
                 <span style={{"fontSize":"11.5px","color":"var(--dim)"}}>
-                  {"Events"}
+                  {"Activity"}
                 </span>
                 {v.widgetEdit && (
                   <>

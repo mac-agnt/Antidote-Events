@@ -31,7 +31,7 @@ Change them in `src/App.tsx`, one colour each:
 - `dashboardBackdrop`: the abstract background behind the Dashboard KPIs.
 - `recordsBackdrop`: the wash behind the Records hero and the New record dialog. `""` uses the theme's gradient.
 
-Theme colours (accent, surfaces, text) live in `src/styles/pulse.css` per `[data-theme]`. The default theme is `harbour`.
+Theme colours (accent, surfaces, text) live in `src/styles/pulse.css` per `[data-theme]`. This copy (Future Events) defaults to the `future` theme defined in `src/styles/future.css`, set via `theme` in `src/App.tsx`.
 
 ## Re-importing from Claude Design
 

@@ -65,6 +65,7 @@ import {
   hexRGB,
   buildGraph
 } from "./data";
+import { FX_TABS, FX_HINTS } from "../future/nav";
 
 /* ── Locked layout ──────────────────────────────────────────────────────────
    These two rules hold for every client build, whatever data.js says:
@@ -86,7 +87,7 @@ const NAV = (() => {
 
 /* All state and behaviour for Pulse. renderVals() returns the flat object the views render from. */
 export default class PulseLogic extends DCLogic {
-  state = { w: typeof window === "undefined" ? 1440 : window.innerWidth, theme:"harbour", page:"Home", draft:"", query:"", thread:[], typed:0, paletteOpen:false, showNotifs:false, palScope:"All", palSel:0, palRecent:["Dunne & Sons Ltd","Credit Control"],
+  state = { w: typeof window === "undefined" ? 1440 : window.innerWidth, theme:"future", page:"Home", fxTab:{}, fxEvent:"all", fxDrawer:null, fxActed:{}, fxToast:null, draft:"", query:"", thread:[], typed:0, paletteOpen:false, showNotifs:false, palScope:"All", palSel:0, palRecent:["Nova Fertility Clinic","Revenue Agent"],
             done:{}, resolved:{}, approved:{}, inboxFilter:"All", approvalFilter:"Awaiting you", open:null, range:"30d",
             workDoc:null, workDocTab:"work",
             queue:"mine", recordTab:"Overview", record:"person", hovered:null, hoverLabel:"", hoverHint:"", hoverTop:0,
@@ -101,8 +102,8 @@ export default class PulseLogic extends DCLogic {
             newRecOpen:false, newRecName:"", newRecTemplate:"Field sheet", newRecCat:"All",
             opsFilter:"all", opsOff:{}, opsOpen:null, opsScope:"week", opsDay:26, opsOrder:null, opsDrag:null,
             opsBuilderOpen:false, opsBuilderMode:"workflow", builderText:"", builderGenerated:false,
-            railOpen:true, barOpen:true, chatRailPinned:false, widgetEdit:false, widgets:["inbox","work","activity"],
-            kpiEdit:false, kpiKeys:["revenue","cash","overdue","margin","jobs"],
+            railOpen:true, barOpen:true, chatRailPinned:false, widgetEdit:false, widgets:["inbox","briefing","work"],
+            kpiEdit:false, kpiKeys:["revenue","contracted","pipeline","cash","outstanding","exhibitors","speakers","readiness"],
             aspect:"sales", filterMenuOpen:false, customFilter:"", extraFilters:[],
             workWidget:"queue", miniOpen:false, miniThread:[], miniDraft:"", miniTab:"chat", miniTone:"plain", miniWorkOpen:"tasks",
             agents:AGENT_DEFS, agentId:"briefing", groupNames:{}, agentQuery:"", agentDraft:"", agentExtra:{},
@@ -172,9 +173,12 @@ export default class PulseLogic extends DCLogic {
     const words = q.toLowerCase().split(/[^a-z]+/).filter(Boolean);
     if (!words.length) return [];
     const hit = [];
+    // Record names resolve to the clusters their story runs through.
+    const ALIAS = {nova:[0,3,4,5,6], peak:[0,5,4], brennan:[6,1], aoife:[6,1], canada:[3,7], affiliate:[7,0], speaker:[6], stand:[5], deal:[3], contract:[3], invoice:[4]};
+    words.forEach(w => (ALIAS[w] || []).forEach(i => { if (hit.indexOf(i) < 0) hit.push(i); }));
     CLUSTERS.forEach((c, i) => {
       const name = c[0].toLowerCase();
-      if (words.some(w => name.includes(w) || w.includes(name.split(" ")[0]))) hit.push(i);
+      if (hit.indexOf(i) < 0 && words.some(w => name.includes(w) || w.includes(name.split(" ")[0]))) hit.push(i);
     });
     return hit;
   }
@@ -1228,6 +1232,21 @@ export default class PulseLogic extends DCLogic {
     this.setState({thread, draft:"", query:"", paletteOpen:false, page:"Home", open:null});
   }
 
+  /* Chat action buttons: navigate or act where there is a real place to go,
+     otherwise ask the follow-up as a question. */
+  runChatAction(label){
+    const GO = {
+      "Open Finance debtors":["Finance","debtors"], "Open Exhibitors readiness":["Exhibitors","readiness"],
+      "Open Production":["Production","presentations"], "Open Growth":["Growth","affiliates"],
+      "Open Reconciliation":["Finance","reconciliation"], "Approve the Peak match":["Finance","reconciliation"],
+      "View the rollout":["Events","portfolio","ca"], "Nudge all three":["Production","presentations"],
+      "Chase the four":["Exhibitors","readiness"]
+    };
+    if (label === "Confirm and send"){ this.fxAct("chase-nova", "Reminder #3 sent to Nova Fertility Clinic · logged on the record"); return; }
+    const g = GO[label];
+    if (g){ if (g[2]) this.setState({fxEvent:g[2]}); this.fxGoTo(g[0], g[1]); return; }
+    this.ask(label);
+  }
   hover(key, label, hint, e){
     const r = e && e.currentTarget ? e.currentTarget.getBoundingClientRect() : null;
     this.setState(prev => ({hovered:key, hoverLabel:label, hoverHint:hint,
@@ -1253,8 +1272,31 @@ export default class PulseLogic extends DCLogic {
     const order = NAV.filter(n => !n.divider).map(n => n.page).concat(["Settings"]);
     const from = order.indexOf(this.state.page), to = order.indexOf(page);
     if (from > -1 && to > -1 && from !== to) this.setState(p => ({navDir: to > from ? 1 : -1, navSeq:(p.navSeq || 0) + 1}));
-    this.setState({page, open:null, showNotifs:false, filterMenuOpen:false});
+    this.setState({page, open:null, showNotifs:false, filterMenuOpen:false, fxDrawer:null});
     if (page === "Dashboard") this.startKpiCount();
+  }
+  /* ── Future modules: shared demo state (event filter, drawers, actions) ── */
+  fxGoTo(page, tab, drawer){
+    if (page !== this.state.page) this.go(page);
+    this.setState(prev => {
+      const patch = {fxDrawer: drawer || null};
+      if (tab && FX_TABS[page]) patch.fxTab = Object.assign({}, prev.fxTab, {[page]: tab});
+      else if (tab && page === "Records") patch.recSection = tab;
+      else if (tab && page === "Work") patch.workSection = tab;
+      else if (tab && page === "Activity") patch.actKpi = tab;
+      return patch;
+    });
+    const main = document.querySelector('[data-scroll-main]');
+    if (main) main.scrollTop = 0;
+  }
+  fxToastMsg(msg){
+    clearTimeout(this._fxToastT);
+    this.setState({fxToast: msg});
+    this._fxToastT = setTimeout(() => this.setState({fxToast:null}), 2600);
+  }
+  fxAct(key, msg){
+    this.setState(prev => ({fxActed: Object.assign({}, prev.fxActed, {[key]: true})}));
+    if (msg) this.fxToastMsg(msg);
   }
   toggleIn(key, value){
     this.setState(prev => {
@@ -1700,8 +1742,8 @@ export default class PulseLogic extends DCLogic {
     /* ---- records: contacts, files, ontology ---- */
     const recSec = REC_SECTIONS.find(s => s.id === st.recSection) || REC_SECTIONS[0];
     const askQ = st.recAsk.trim().toLowerCase();
-    const TAG_TINT = {staff:[LIME,""], customer:[BODY,""], supplier:[BODY,""],
-      watch:[AMBER,""], "on stop":[RED,""]};
+    const TAG_TINT = {staff:[LIME,""], exhibitor:["var(--ev-mh)",""], sponsor:["var(--ev-ff)",""], speaker:[AMBER,""],
+      supplier:[BODY,""], partner:[GREEN,""]};
     const askTerms = askQ ? askQ.split(/\s+/).filter(w => w.length > 2 &&
       ["the","and","for","who","any","anyone","all","are","with","from","that","show","find","list","get","people","contact","contacts"].indexOf(w) < 0) : [];
     const matchedContacts = CONTACTS.filter(c => {
@@ -1742,21 +1784,24 @@ export default class PulseLogic extends DCLogic {
     const HERO = {
       contacts:{eyebrow:"CONTACTS · " + CONTACTS.length + " ON FILE", title:"Everyone you deal with",
         blurb:"Staff and external in one place. Ask in your own words — it matches on name, role, organisation and tag.",
-        placeholder:"Try “buyers in Cork”, “installers”, “on stop”…", kind:"KEYWORD", scroll:"SCROLL FOR THE FULL LIST",
-        suggestions:["on stop","installer","Casey","supplier"]},
+        placeholder:"Try “speaker”, “Peak”, “exhibitor”, “Antidote”…", kind:"KEYWORD", scroll:"SCROLL FOR THE FULL LIST",
+        suggestions:["speaker","exhibitor","Nova","supplier"]},
       files:{eyebrow:"FILES · " + FILE_TREE.filter(r => r.type === "file").length + " DOCUMENTS",
-        title:"Everything on record", blurb:"Contracts, certificates and invoices. Indexed pages are the ones Helios can read from.",
+        title:"Everything on record", blurb:"Contracts, floor plans, decks and invoices. Indexed pages are the ones Pulse can read from.",
         placeholder:"Search inside every document…", kind:"FULL TEXT", scroll:"SCROLL FOR THE VIEWER",
         suggestions:["credit","expiry","framework","invoice"]},
       ontology:{eyebrow:"ONTOLOGY", title:"Ontology", blurb:recSec.blurb,
         placeholder:"", kind:"", scroll:"", suggestions:[]}
-    }[recSec.id];
+    }[recSec.id] || {eyebrow:recSec.label.toUpperCase(), title:recSec.label, blurb:recSec.blurb,
+        placeholder:"", kind:"", scroll:"", suggestions:[]};
+    const recClient = ["ontology","files","contacts"].indexOf(recSec.id) < 0;
 
     const recModel = {
       title: HERO.title, blurb: HERO.blurb,
       eyebrow: HERO.eyebrow, askPlaceholder: HERO.placeholder,
       searchKind: HERO.kind, scrollHint: HERO.scroll,
-      hasHero: page === "Records" && recSec.id !== "ontology",
+      hasHero: page === "Records" && recSec.id !== "ontology" && !recClient,
+      isClient: page === "Records" && recClient, section: recSec.id, sectionLabel: recSec.label, sectionBlurb: recSec.blurb,
       isContacts: page === "Records" && recSec.id === "contacts",
       isFiles: page === "Records" && recSec.id === "files",
       isOntology: page === "Records" && recSec.id === "ontology",
@@ -1998,12 +2043,12 @@ export default class PulseLogic extends DCLogic {
     };
 
     const adminModel = {
-      company: "Kilbride Group",
+      company: "Antidote Events",
       urgent: [
-        ["3", "employees awaiting access", AMBER, "var(--warn-soft)", "people"],
-        ["1", "integration disconnected", RED, "var(--bad-soft)", "integrations"],
-        ["74", "duplicate records", AMBER, "var(--warn-soft)", "health"],
-        ["2", "security recommendations", AMBER, "var(--warn-soft)", "security"]
+        ["2", "people awaiting access", AMBER, "var(--warn-soft)", "people"],
+        ["0", "broken integrations", GREEN, "var(--ok-soft)", "integrations"],
+        ["18", "duplicate contacts", AMBER, "var(--warn-soft)", "health"],
+        ["1", "Make.com scenario left to retire", AMBER, "var(--warn-soft)", "modules"]
       ].map(u => ({count:u[0], label:u[1], dot:u[2], border:u[3],
         go: () => this.setState({adminOpen:u[4]})})),
       panelAnim: "animation:" + ((st.adminTick || 0) ? "panelSwapB" : "panelSwapA")
@@ -2099,6 +2144,7 @@ export default class PulseLogic extends DCLogic {
       if (st.actKpi === "all") return true;
       if (st.actKpi === "people") return e.stream === "people";
       if (st.actKpi === "ai") return e.stream === "ai";
+      if (st.actKpi === "systems") return e.stream === "data";
       if (st.actKpi === "attention") return e.status === "failed" || e.status === "awaiting";
       return true;
     };
@@ -2249,9 +2295,10 @@ export default class PulseLogic extends DCLogic {
                         : "background:var(--chip);border:1px solid var(--chip-border);color:var(--body)"),
       kpis: [
         ["Events today", "1,284", "all", "across every source", LIME],
-        ["Employees active", "42", "people", "of 48 with access", "#f0c04b"],
-        ["AI actions", "318", "ai", "by " + solo.length + " installed agents", "#6ad0f0"],
-        ["Need attention", "7", "attention", "failed or awaiting a yes", RED]
+        ["Team active", "7", "people", "of 8 with access", "#EED7D3"],
+        ["AI actions", "318", "ai", "by " + solo.length + " installed agents", "#E0524C"],
+        ["System syncs", "146", "systems", "Xero, HubSpot, Shopify, Drive", "#6ad0f0"],
+        ["Need attention", "5", "attention", "failed or awaiting a yes", RED]
       ].map((k, ki) => {
         const on = st.actKpi === k[2];
         return {label:k[0], value:k[1], hint:k[3], dot:k[4],
@@ -2265,7 +2312,8 @@ export default class PulseLogic extends DCLogic {
           pick: () => this.setState({actKpi: on ? "all" : k[2]})};
       }).map((k, ki) => Object.assign(k, {style: k.style + ";animation:springIn .5s var(--ease) " + (ki * 70) + "ms both"})),
       streams: (agentLens ? STREAM_DEFS.filter(d => d.id === "ai")
-        : peopleLens ? STREAM_DEFS.filter(d => d.id === "people") : STREAM_DEFS).map((d, di) => {
+        : peopleLens ? STREAM_DEFS.filter(d => d.id === "people")
+        : st.actKpi === "systems" ? STREAM_DEFS.filter(d => d.id === "data") : STREAM_DEFS).map((d, di) => {
         const items = (feeds[d.id] || []).filter(kpiMatch);
         const hovered = st.actHover === d.id;
         return {title:d.title, sub:d.sub, icon:d.icon, tint:d.tint, delay: (di * 110) + "ms",
@@ -2502,14 +2550,14 @@ export default class PulseLogic extends DCLogic {
       + (active ? "background:var(--pill-bg);color:var(--pill-ink);font-weight:500;box-shadow:0 2px 5px rgba(0,0,0,.34),0 6px 16px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.5);" : "background:none;color:var(--dim)");
 
     const TASKS = [
-      {id:"t1", title:"Chase INV-10428 — Dunne & Sons", due:"09:30", who:"AN", queue:["mine","overdue"], subject:"Dunne & Sons Ltd", priority:"high", late:true},
-      {id:"t2", title:"Reassign Van 04 jobs off Ballincollig", due:"11:00", who:"MK", queue:["mine","overdue"], subject:"Ballincollig depot", priority:"high", late:true},
-      {id:"t3", title:"Approve purchase order PO-4471", due:"12:00", who:"MK", queue:["mine"], subject:"PO-4471", priority:"normal"},
-      {id:"t4", title:"Call Casey Builders about Thursday", due:"14:00", who:"TW", queue:["mine","team"], subject:"Casey Builders", priority:"normal"},
-      {id:"t5", title:"Sign off August counter stocktake", due:"16:30", who:"SB", queue:["team"], subject:"Head office", priority:"low"},
-      {id:"t6", title:"Assign installer to Thursday depot visit", due:"Tomorrow", who:"—", queue:["unassigned","upcoming"], subject:"site-visits.visit", priority:"high"},
-      {id:"t7", title:"VAT return — August", due:"Fri", who:"AN", queue:["team","upcoming"], subject:"Head office", priority:"normal"},
-      {id:"t8", title:"Ballincollig lease decision", due:"Thu", who:"MK", queue:["mine","upcoming"], subject:"Ballincollig depot", priority:"high"}
+      {id:"t1", title:"Chase Nova Fertility deposit", due:"09:30", who:"KC", queue:["mine","overdue"], subject:"Nova Fertility Clinic", priority:"high", late:true},
+      {id:"t2", title:"Confirm Peak Health floor position", due:"11:00", who:"ND", queue:["mine"], subject:"Stand B14", priority:"normal"},
+      {id:"t3", title:"Format Dr Brennan deck", due:"Blocked", who:"SK", queue:["team","overdue"], subject:"Dr Aoife Brennan", priority:"high", late:true},
+      {id:"t4", title:"Approve Men's Health campaign", due:"14:00", who:"ND", queue:["mine"], subject:"Future Men's Health", priority:"normal"},
+      {id:"t5", title:"Confirm electrical requirements with builder", due:"Wed", who:"RW", queue:["team","upcoming"], subject:"Brightwell Exhibition Build", priority:"high"},
+      {id:"t6", title:"Assign 8 Men's Health programme slots", due:"13 Nov", who:"—", queue:["unassigned","upcoming"], subject:"Future Men's Health", priority:"high"},
+      {id:"t7", title:"Approve Nova move to A05", due:"Tue", who:"ND", queue:["mine","upcoming"], subject:"Floor plan", priority:"normal"},
+      {id:"t8", title:"Sign off Canada localisation decisions", due:"Fri", who:"ND", queue:["mine","upcoming"], subject:"Canada Pilot", priority:"high"}
     ];
     const decorateTask = (t) => {
       const done = !!st.done[t.id];
@@ -2543,78 +2591,88 @@ export default class PulseLogic extends DCLogic {
     const queueTasks = (st.queue === "all" ? TASKS : TASKS.filter(t => t.queue.includes(st.queue))).map(decorateTask);
 
     const APPROVALS = [
-      {id:"a1", title:"Purchase order PO-4471 — €14,280", subject:"Munster Plumbing Supplies · raised by Aoife Nolan", age:"18m", status:"awaiting you",
-       steps:[{who:"Aoife Nolan",state:"raised 08:54",dot:GREEN},{who:"Martin Kilbride",state:"pending",dot:AMBER}],
-       work:{kind:"table", label:"PURCHASE ORDER", viewLabel:"View order",
-         headline:"PO-4471 · Munster Plumbing Supplies", sub:"Delivery Thursday 18 Sep · terms 30 days",
-         cols:["Line","Qty","Unit","Total"], align:["left","right","right","right"],
-         rows:[["22mm copper tube — 3m","240","€38.40","€9,216.00"],
-               ["Compression elbow 22mm","400","€4.10","€1,640.00"],
-               ["Solder ring coupler 22mm","600","€2.85","€1,710.00"],
-               ["Flux paste 350g","60","€28.57","€1,714.00"]],
-         totals:[["Net","€14,280.00"],["VAT 23% (reverse charge)","€0.00"],["Payable","€14,280.00"]],
-         thinking:[["Checked stock levels","All four lines are below reorder point"],
-                   ["Matched pricing","Unit prices equal the June supplier agreement"],
-                   ["Checked commitments","Three lines are committed to Thursday's jobs"],
-                   ["Checked threshold","€4,280 over Martin's sign-off limit, so it routed here"]],
-         tools:[["records.read","read"],["invoices.read","read"],["approvals.route","write"]],
-         risk:"No alternative supplier quote on file. Last price change was 14 June."}},
-      {id:"a2", title:"Credit limit increase — Casey Builders", subject:"€10,000 → €18,000 · raised by Niamh Cronin", age:"Yesterday", status:"awaiting you",
-       steps:[{who:"Niamh Cronin",state:"raised 16:02",dot:GREEN},{who:"Aoife Nolan",state:"approved 16:40",dot:GREEN},{who:"Martin Kilbride",state:"pending",dot:AMBER}],
-       work:{kind:"diff", label:"RECORD CHANGE", viewLabel:"View change",
-         headline:"Casey Builders Ltd · account CB-0142", sub:"Three fields change on approval, one unchanged",
-         diff:[["Credit limit","€10,000","€18,000"],["Terms","30 days","45 days"],["Risk band","B","B"],["Reviewed","14 Mar 2026","Today"]],
-         thinking:[["Read payment history","24 invoices, 22 paid on time, average 27 days"],
-                   ["Checked exposure","Current balance €7,400 — 74% of the existing limit"],
-                   ["Checked open work","€21k of quoted work would be blocked by the current limit"],
-                   ["Checked policy","Increases above €15,000 need your decision"]],
-         tools:[["records.read","read"],["invoices.read","read"],["records.update","write"]],
-         risk:"One late payment in February, 19 days over. Cleared in full."}},
-      {id:"a4", title:"Proposal — Ballincollig retrofit €62,400", subject:"Drafted by Helios · raised by Niamh Cronin", age:"3h", status:"awaiting you",
-       steps:[{who:"Niamh Cronin",state:"raised 06:10",dot:GREEN},{who:"Martin Kilbride",state:"pending",dot:AMBER}],
-       work:{kind:"doc", label:"PROPOSAL · 4 PAGES", viewLabel:"Read proposal",
-         headline:"Heating retrofit — Ballincollig depot", sub:"Prepared for Casey Builders Ltd · valid 30 days",
-         doc:[["Scope","Replace the depot's two oil boilers with a cascaded air-source system, re-balance the existing circuit and fit weather compensation controls. Work is phased over two weekends so the yard keeps running."],
-              ["Approach","Week one strips the plant room and lands the new units on the existing plinth. Week two commissions the cascade and hands over with a 12-month monitoring window."],
-              ["Commercials","€62,400 fixed price, 30% on order, 40% on plant delivery, 30% on handover. Excludes making good to the render."],
-              ["Why us","We hold the maintenance contract on the Glanmire site and carry the same plant in stock, so lead time is three weeks rather than nine."]],
-         totals:[["Plant","€38,900.00"],["Labour","€18,100.00"],["Controls and commissioning","€5,400.00"],["Total","€62,400.00"]],
-         thinking:[["Pulled the site record","Two oil boilers, 2009, last serviced March"],
-                   ["Priced from live stock","Plant is in stock at the Cork branch"],
-                   ["Reused past wording","Lifted scope language from the Glanmire proposal you approved"],
-                   ["Left a gap","No allowance for asbestos survey — flagged below"]],
-         tools:[["records.read","read"],["files.read","read"],["email.send","external"]],
-         risk:"No asbestos survey allowance. If the plant room needs one, add roughly €1,200."}},
-      {id:"a5", title:"Payment run — 14 suppliers €48,920", subject:"Scheduled by Cash Watch · Friday 19 Sep", age:"1h", status:"awaiting you",
-       steps:[{who:"Cash Watch",state:"proposed 09:40",dot:GREEN},{who:"Martin Kilbride",state:"pending",dot:AMBER}],
-       work:{kind:"table", label:"PAYMENT RUN", viewLabel:"View run",
-         headline:"Run PR-0238 · 14 payments", sub:"Leaves the AIB current account on Friday 19 Sep",
-         cols:["Supplier","Due","Invoices","Amount"], align:["left","left","right","right"],
-         rows:[["Munster Plumbing Supplies","19 Sep","3","€18,240.00"],
-               ["Tyrrell Insulation","19 Sep","1","€9,110.00"],
-               ["Kelleher Haulage","20 Sep","4","€7,480.00"],
-               ["Cork Electrical Wholesale","19 Sep","2","€6,300.00"],
-               ["10 others","19–24 Sep","11","€7,790.00"]],
-         totals:[["Run total","€48,920.00"],["Account balance after","€61,380.00"],["Held back","€2,410.00"]],
-         thinking:[["Read the ledger","31 invoices due inside seven days"],
-                   ["Held two back","Tyrrell credit note unresolved, Dineen job in dispute"],
-                   ["Checked the balance","Run leaves €61,380, above your €50k floor"],
-                   ["Checked mandates","All 14 have current SEPA mandates on file"]],
-         tools:[["invoices.read","read"],["payments.read","read"],["bank.payment.create","external"]],
-         risk:"Two invoices held back total €2,410. They will age past 60 days if not paid next run."}},
-      {id:"a3", title:"Write-off — INV-10233 €412", subject:"Glanmire Mechanical · raised by Aoife Nolan", age:"2 days", status:"approved",
-       steps:[{who:"Aoife Nolan",state:"raised",dot:GREEN},{who:"Martin Kilbride",state:"approved",dot:GREEN}],
-       work:{kind:"diff", label:"WRITE-OFF", viewLabel:"View write-off",
-         headline:"INV-10233 · Glanmire Mechanical", sub:"Two fields change on approval",
-         diff:[["Status","Past due 94 days","Written off"],["Balance","€412.00","€0.00"]],
-         thinking:[["Checked the age","94 days past due, three chases sent"],
-                   ["Checked the account","Company dissolved 12 August"],
-                   ["Checked the amount","Below your €500 write-off threshold"]],
-         tools:[["invoices.read","read"],["invoices.update","write"]],
-         risk:"None. The counterparty no longer exists."}}
+      {id:"a1", title:"Contract discount · Harbour IVF Partners 12%", subject:"Premium stand + workshop · raised by Kathleen Corr", age:"40m", status:"awaiting you",
+       steps:[{who:"Kathleen Corr",state:"raised 08:50",dot:GREEN},{who:"Nikki Dwyer",state:"pending",dot:AMBER}],
+       work:{kind:"table", label:"CONTRACT · DISCOUNT", viewLabel:"View contract",
+         headline:"Harbour IVF Partners · Future Fertility 2027", sub:"Standard contract · 30 / 70 payment split",
+         cols:["Line item","Qty","List","Net"], align:["left","right","right","right"],
+         rows:[["Premium stand 4m x 3m","1","€9,800.00","€8,624.00"],
+               ["Workshop slot · 30 min","1","€2,400.00","€2,112.00"],
+               ["Newsletter placement","2","€900.00","€1,584.00"],
+               ["Social package","1","€750.00","€660.00"],
+               ["Partner tickets","12","incl.","incl."]],
+         totals:[["List value","€14,750.00"],["Discount 12%","−€1,770.00"],["Contract value","€12,980.00"]],
+         thinking:[["Checked policy","Discounts over 10% need Nikki"],
+                   ["Checked inventory","Premium stands 14 of 18 sold for Future Fertility"],
+                   ["Checked history","Harbour exhibited in 2025 and paid on time"],
+                   ["Checked the ask","They want 4m frontage, same as Nova; A05 or B02 would fit"]],
+         tools:[["deals.read","read"],["inventory.read","read"],["contracts.update","write"]],
+         risk:"Only 4 premium stands left. Holding at 10% is likely to close within the week."}},
+      {id:"a2", title:"Floor-plan move · Nova Fertility Clinic to A05", subject:"4m frontage request · raised by Robyn Walsh", age:"2h", status:"awaiting you",
+       steps:[{who:"Exhibitor Agent",state:"proposed 07:20",dot:GREEN},{who:"Robyn Walsh",state:"approved 08:05",dot:GREEN},{who:"Nikki Dwyer",state:"pending",dot:AMBER}],
+       work:{kind:"diff", label:"FLOOR PLAN CHANGE", viewLabel:"View change",
+         headline:"Nova Fertility Clinic · Future Fertility", sub:"Three fields change on approval",
+         diff:[["Stand","A07","A05"],["Frontage","3m","4m"],["Distance to main stage","18m","12m"],["Power","2 sockets","2 sockets"]],
+         thinking:[["Read the contract","Package specifies 4m x 2m frontage"],
+                   ["Checked the floor","A05 is free since Lumen moved to D02"],
+                   ["Checked the builder","Brightwell can re-plot before the 30 Oct floor-plan lock"],
+                   ["Checked money","Deposit still overdue; move holds until it clears"]],
+         tools:[["floorplan.read","read"],["contracts.read","read"],["floorplan.update","write"]],
+         risk:"Stand stays provisional until the €5,400 deposit is paid."}},
+      {id:"a4", title:"Social creative · Future Men's Health launch", subject:"4 posts + launch email · raised by Amy Byrne", age:"3h", status:"awaiting you",
+       steps:[{who:"Amy Byrne",state:"raised 06:10",dot:GREEN},{who:"Nikki Dwyer",state:"pending",dot:AMBER}],
+       work:{kind:"doc", label:"CAMPAIGN · 4 POSTS", viewLabel:"Read the brief",
+         headline:"Future Men's Health 2027 · launch", sub:"Designed in Canva · scheduled in Later for Tue 09:00",
+         doc:[["Message","Future Men's Health is back at the RDS on 13–14 March 2027. Two days of straight talk on fitness, hormones, sleep and mental health from people who know what they're talking about."],
+              ["Posts","Launch carousel, speaker teaser (Rob Lipsett and Andrew Porter), early-bird price card, and a 20-second Main Stage clip from 2025 cut in CapCut."],
+              ["Audience","8,640 past Men's Health attendees plus 2,910 who came to both events. Early-bird code runs to 31 October."],
+              ["Asks","Approve the creative and the send. Pulse posts nothing until you say yes."]],
+         totals:[["Audience","8,640"],["Expected tickets","~150"],["Budget","€1,200 paid social"]],
+         thinking:[["Pulled last year's launch","2026 launch sold 131 tickets in week one"],
+                   ["Checked the speakers","Both named speakers confirmed with approved bios"],
+                   ["Checked the audience","Suppressed 214 people who already bought"],
+                   ["Left a gap","Headline sponsor slot still unsold, so no sponsor logo"]],
+         tools:[["campaigns.read","read"],["audience.read","read"],["social.schedule","external"]],
+         risk:"No headline sponsor on the creative yet. Orbit Health Cover decides on 9 October."}},
+      {id:"a5", title:"Speaker deck · Dr Ciara Moloney", subject:"IVF: What the Numbers Mean · raised by Sarah Keane", age:"1h", status:"awaiting you",
+       steps:[{who:"Sarah Keane",state:"formatted 09:40",dot:GREEN},{who:"Nikki Dwyer",state:"pending",dot:AMBER}],
+       work:{kind:"table", label:"DECK · 24 SLIDES", viewLabel:"View deck",
+         headline:"IVF: What the Numbers Mean", sub:"Main Stage 1 · Sat 13:00 · house style applied",
+         cols:["Check","Result","","Status"], align:["left","left","right","right"],
+         rows:[["Format","16:9 · fonts embedded","","Pass"],
+               ["House style","Future Fertility template","","Pass"],
+               ["Medical claims","2 cited sources added","","Pass"],
+               ["Video","1 clip · 48s · audio checked","","Pass"],
+               ["Sponsor mention","None required","","Pass"]],
+         totals:[["Slides","24"],["Run time","22 min"],["AV folder","Ready on approval"]],
+         thinking:[["Applied house style","Future Fertility template, brand fonts"],
+                   ["Checked claims","Two statistics needed sources; added"],
+                   ["Checked media","One embedded clip, audio levelled"]],
+         tools:[["files.read","read"],["av.handover","write"]],
+         risk:"None. Approving moves it to AV Ready."}},
+      {id:"a6", title:"Affiliate campaign · Performance Nutrition Co. October", subject:"15% discount · 15% commission · raised by Amy Byrne", age:"Yesterday", status:"awaiting you",
+       steps:[{who:"Growth Agent",state:"drafted",dot:GREEN},{who:"Amy Byrne",state:"approved",dot:GREEN},{who:"Nikki Dwyer",state:"pending",dot:AMBER}],
+       work:{kind:"diff", label:"AFFILIATE SEND", viewLabel:"View send",
+         headline:"Performance Nutrition Co. · October send", sub:"To the Men's Health and both-events segments",
+         diff:[["Audience","8,420 (Aug send)","11,550"],["Discount","15%","15%"],["Commission to Antidote","15%","15%"],["Send date","—","Thu 8 Oct 10:00"]],
+         thinking:[["Read the last send","214 orders, €16,850 sales, €2,527.50 commission"],
+                   ["Checked fatigue","No affiliate email to this segment in 6 weeks"],
+                   ["Checked consent","Marketing consent on all 11,550"]],
+         tools:[["campaigns.read","read"],["email.send","external"]],
+         risk:"Low. Unsubscribe rate on the August send was 0.4%."}},
+      {id:"a3", title:"Floor-plan move · Peak Health Labs to B14", subject:"Main-stage proximity request · raised by Robyn Walsh", age:"4 days", status:"approved",
+       steps:[{who:"Robyn Walsh",state:"raised",dot:GREEN},{who:"Nikki Dwyer",state:"approved",dot:GREEN}],
+       work:{kind:"diff", label:"FLOOR PLAN CHANGE", viewLabel:"View change",
+         headline:"Peak Health Labs · Future Men's Health", sub:"Moved closer to the main stage",
+         diff:[["Stand","C12","B14"],["Zone","C","B"],["Distance to main stage","34m","18m"]],
+         thinking:[["Read the request","Would prefer a position close to the main stage"],
+                   ["Checked the floor","B14 free, same 4m x 2m footprint"],
+                   ["Checked power","2 sockets available on the B circuit"]],
+         tools:[["floorplan.read","read"],["floorplan.update","write"]],
+         risk:"None."}}
     ];
     const bucketOf = (a) => a.status === "approved" ? "Decided"
-      : a.steps.some(s => s.state === "pending" && s.who === "Martin Kilbride") ? "Awaiting you" : "Awaiting others";
+      : a.steps.some(s => s.state === "pending" && s.who === "Nikki Dwyer") ? "Awaiting you" : "Awaiting others";
     const APPROVAL_COUNTS = {"Awaiting you":0, "Awaiting others":0, "Decided":0};
     APPROVALS.filter(a => !st.approved[a.id]).forEach(a => { APPROVAL_COUNTS[bucketOf(a)] += 1; });
     const approvalView = st.workViews.approvals || "Awaiting you";
@@ -2778,8 +2836,8 @@ export default class PulseLogic extends DCLogic {
        ],
        breakdown:[
         {key:"Head office", value:money(214600), pct:"72%", color:LIME},
-        {key:"Ballincollig depot", value:money(156800), pct:"53%", color:"var(--track)"},
-        {key:"Mallow yard", value:money(41400), pct:"18%", color:"var(--track)"}
+        {key:"Future Men\u2019s Health", value:money(156800), pct:"53%", color:"var(--track)"},
+        {key:"Canada Pilot", value:money(0), pct:"0%", color:"var(--track)"}
        ]},
       {title:"site-visits", description:"Contributed by an installed module.", hasBreakdown:false,
        metrics:[
@@ -2854,11 +2912,11 @@ export default class PulseLogic extends DCLogic {
     ];
 
     const notificationFeed = [
-      {dot:LIME, text:"Aoife Nolan assigned you “Approve purchase order PO-4471”", event:"core.approval.created", channel:"Inbox", meta:"18m"},
-      {dot:RED, text:"Xero invoice sync failed — refresh token expired", event:"core.automation.failed", channel:"Inbox · WhatsApp", meta:"6h"},
-      {dot:AMBER, text:"Helios flagged a change in Dunne & Sons payment behaviour", event:"core.notification.created", channel:"Inbox", meta:"2h"},
-      {dot:AMBER, text:"Thursday's depot visit is still unassigned", event:"site-visits.visit.created", channel:"Inbox", meta:"2h"},
-      {dot:NEUTRAL, text:"Séamus Byrne mentioned you on “Reassign Van 04 jobs”", event:"core.comment.created", channel:"Inbox", meta:"Yesterday"},
+      {dot:RED, text:"Nova Fertility Clinic deposit €5,400 is 4 days overdue", event:"finance.invoice.overdue", channel:"Inbox · WhatsApp", meta:"07:00"},
+      {dot:AMBER, text:"Revenue Agent matched €3,750 PEAKHLTH to Peak Health Labs · needs your yes", event:"finance.payment.matched", channel:"Inbox", meta:"08:10"},
+      {dot:LIME, text:"Kathleen Corr asked you to approve a 12% discount for Harbour IVF Partners", event:"sales.approval.created", channel:"Inbox", meta:"40m"},
+      {dot:AMBER, text:"Dr Aoife Brennan's deck is blocking Main Stage 1 AV review", event:"production.deck.overdue", channel:"Inbox", meta:"2h"},
+      {dot:NEUTRAL, text:"Amy Byrne sent the Men's Health launch creative for approval", event:"growth.approval.created", channel:"Inbox", meta:"3h"},
       {dot:NEUTRAL, text:"Your daily briefing is ready", event:"core.briefing.sent", channel:"WhatsApp", meta:"07:00"}
     ];
 
@@ -2889,12 +2947,12 @@ export default class PulseLogic extends DCLogic {
       recents.length ? {group:"Recent", scope:"All", items:recents.slice(0, 3).map(r => ({title:r, meta:"Recent search", hint:"AGAIN", glyph:"recent",
         go: () => this.setState({query:r, palSel:0})}))} : null,
       {group:"Actions", scope:"Actions", items:[
-        {title:"Start a new Helios conversation", meta:"Clears the current thread", hint:"ACTION", glyph:"action",
+        {title:"Start a new Pulse conversation", meta:"Clears the current thread", hint:"ACTION", glyph:"action",
           go: () => { clearInterval(this._t); this.setState({page:"Home", thread:[], typed:0, draft:""}); }},
         {title:"Review approvals waiting on you", meta:"Work · approvals", hint:"ACTION", glyph:"action",
           go: () => this.setState({page:"Work", queue:"mine"})},
         {title:themeAction, meta:"Appearance", hint:"ACTION", glyph:"action",
-          go: () => this.setState(p => p.theme === "light" ? {theme: p.darkTheme || this.props.theme || "harbour"} : {theme:"light", darkTheme:p.theme})},
+          go: () => this.setState(p => p.theme === "light" ? {theme: p.darkTheme || this.props.theme || "future"} : {theme:"light", darkTheme:p.theme})},
         {title:"Open system health", meta:"Admin · modules and jobs", hint:"ACTION", glyph:"action",
           go: () => this.setState({page:"Settings"})}
       ]},
@@ -2902,8 +2960,17 @@ export default class PulseLogic extends DCLogic {
         go: () => this.setState({page:"Agents", agentId:a.id})}))},
       {group:"Work", scope:"Work", items:TASKS.slice(0, 4).map(t => ({title:t.title, meta:t.subject + " · due " + t.due, hint:"TASK", glyph:"task",
         go: () => this.setState({page:"Work", queue:"mine"})}))},
-      {group:"Records", scope:"Records", items:PEOPLE.slice(0, 3).map(p => ({title:p[0], meta:p[1] + " · " + p[3], hint:"PERSON", glyph:"person",
-        go: () => this.setState({page:"Records", record:"person"})}))
+      {group:"Records", scope:"Records", items:[
+        ["Nova Fertility Clinic","Deal €18,000 · Future Fertility","DEAL","org","Sales","pipeline","deal","d-nova"],
+        ["Peak Health Labs","Exhibitor · stand B14 · 78% ready","EXHIBITOR","org","Exhibitors","onboarding","exhibitor","x-peak"],
+        ["Dr Aoife Brennan","Speaker · deck overdue · blocking AV","SPEAKER","person","Production","presentations","speaker","s-brennan"],
+        ["FE-2027-0412","Nova deposit €5,400 · 4 days overdue","INVOICE","task","Finance","invoices","invoice","i-nova-1"],
+        ["Stand B14","Peak Health Labs · 4m x 2m · Zone B","STAND","page","Exhibitors","floorplan","stand","B14"],
+        ["Optimising Men's Health Before 40","Content room · Main Stage 2","SESSION","page","Production","rooms","room","cr-40"],
+        ["Performance Nutrition Co.","Affiliate · €2,527.50 commission","PARTNER","org","Growth","affiliates","affiliate","perf-nutrition"]
+      ].map(r => ({title:r[0], meta:r[1], hint:r[2], glyph:r[3], go: () => this.fxGoTo(r[4], r[5], {kind:r[6], id:r[7]})}))
+        .concat(PEOPLE.slice(0, 3).map(p => ({title:p[0], meta:p[1] + " · " + p[3], hint:"PERSON", glyph:"person",
+        go: () => this.setState({page:"Records", record:"person"})})))
         .concat(ORGS.slice(0, 3).map(o => ({title:o[0], meta:o[1] + " · " + o[2] + " outstanding", hint:"ORG", glyph:"org",
         go: () => this.setState({page:"Records", record:"org"})})))},
       {group:"Pages", scope:"Pages", items:ASPECT_DEFS.slice(0, 3).map(a => ({title:a.label, meta:a.description, hint:"AREA", glyph:"page",
@@ -2972,8 +3039,8 @@ export default class PulseLogic extends DCLogic {
     };
     const KITS = {
       Home: [
-        {title:"Ask what changed today", meta:"Helios · briefing", icon:ICONS.helios, go: () => { clearInterval(this._t); this.setState({paletteOpen:false, query:"", page:"Home"}); this.ask("What changed today?"); }},
-        {title:"Action inbox", meta:openKeys.length + " waiting on you", icon:ICONS.inbox, go: jump("Home", {open:null})},
+        {title:"Ask what changed today", meta:"Pulse · briefing", icon:ICONS.helios, go: () => { clearInterval(this._t); this.setState({paletteOpen:false, query:"", page:"Home"}); this.ask("What changed today?"); }},
+        {title:"Today\u2019s priorities", meta:openKeys.length + " waiting on you", icon:ICONS.inbox, go: jump("Home", {open:null})},
         {title:"Edit widgets", meta:"Rearrange the right rail", icon:ICONS.dash, go: jump("Home", {widgetEdit:true})},
         {title:"My work", meta:"Tasks due today", icon:ICONS.work, go: jump("Work", {queue:"mine"})}
       ],
@@ -2990,20 +3057,20 @@ export default class PulseLogic extends DCLogic {
         {title:"New record", meta:"From a template", icon:ICONS.modules, go: () => this.setState({paletteOpen:false, query:"", page:"Records", newRecOpen:true, newRecName:"", newRecTemplate:"Field sheet"})}
       ],
       Dashboard: [
-        {title:"Sales", meta:"Pipeline and quotes", icon:ICONS.insights, go: jump("Dashboard", {aspect:"sales"})},
-        {title:"Cash", meta:"Owed, overdue, collected", icon:ICONS.navDash, go: jump("Dashboard", {aspect:"cash"})},
+        {title:"Commercial", meta:"Pipeline and contracts", icon:ICONS.insights, go: jump("Dashboard", {aspect:"sales"})},
+        {title:"Finance", meta:"Owed, overdue, collected", icon:ICONS.navDash, go: jump("Dashboard", {aspect:"finance"})},
         {title:"Last 7 days", meta:"Shorten the range", icon:ICONS.autos, go: jump("Dashboard", {range:"7d"})},
         {title:"Edit metrics", meta:"Pick the five on top", icon:ICONS.dash, go: jump("Dashboard", {kpiEdit:true})}
       ],
       Agents: [
-        {title:"Month-end close", meta:"Group of three agents", icon:ICONS.agents, go: jump("Agents", {agentId:"monthend"})},
-        {title:"Credit Control", meta:"Watches payment behaviour", icon:ICONS.agents, go: jump("Agents", {agentId:"credit"})},
+        {title:"Nova Fertility handover", meta:"Group of three agents", icon:ICONS.agents, go: jump("Agents", {agentId:"nova"})},
+        {title:"Revenue Agent", meta:"Pipeline, invoices, debtors", icon:ICONS.agents, go: jump("Agents", {agentId:"revenue"})},
         {title:"Build an agent", meta:"Start from a blank brief", icon:ICONS.modules, go: () => this.setState({paletteOpen:false, query:"", page:"Agents", builderOpen:true, builderMode:"new"})},
         {title:"Tools and grants", meta:"What agents may do", icon:ICONS.navAdmin, go: jump("Settings")}
       ],
       Activity: [
         {title:"Needs attention", meta:"Failures and retries", icon:ICONS.health, go: jump("Activity", {actKpi:"attention"})},
-        {title:"Agent events", meta:"Only what Helios did", icon:ICONS.agents, go: jump("Activity", {actKpi:"ai"})},
+        {title:"Agent events", meta:"Only what agents did", icon:ICONS.agents, go: jump("Activity", {actKpi:"ai"})},
         {title:"People events", meta:"Only what the team did", icon:ICONS.people, go: jump("Activity", {actKpi:"people"})},
         {title:"Everything", meta:"Full audit trail", icon:ICONS.navActivity, go: jump("Activity", {actKpi:"all"})}
       ],
@@ -3015,18 +3082,18 @@ export default class PulseLogic extends DCLogic {
       ]
     };
     const palPageRaw = KITS[page] || [
-      {title:"Ask Helios about this page", meta:"It sees what you see", icon:ICONS.helios, go: () => { this.setState({paletteOpen:false, query:"", page:"Home"}); this.ask("What should I know about " + page + "?"); }},
-      {title:"Action inbox", meta:openKeys.length + " waiting on you", icon:ICONS.inbox, go: jump("Home")},
+      {title:"Ask Pulse about this page", meta:"It sees what you see", icon:ICONS.helios, go: () => { this.setState({paletteOpen:false, query:"", page:"Home"}); this.ask("What should I know about " + page + "?"); }},
+      {title:"Today\u2019s priorities", meta:openKeys.length + " waiting on you", icon:ICONS.inbox, go: jump("Home")},
       {title:"My work", meta:"Tasks due today", icon:ICONS.work, go: jump("Work", {queue:"mine"})},
       {title:"Records", meta:"Every record you can see", icon:ICONS.navRecords, go: jump("Records")}
     ];
     const FREQ = [
-      {title:"Action inbox", count:"31×", icon:ICONS.inbox, go: jump("Home")},
-      {title:"Approvals", count:"24×", icon:ICONS.approvals, go: jump("Work", {workSection:"approvals"})},
-      {title:"Overdue invoices", count:"18×", icon:ICONS.insights, go: jump("Dashboard", {aspect:"cash"})},
-      {title:"Dunne & Sons Ltd", count:"12×", icon:ICONS.orgs, go: jump("Records", {recSection:"contacts", record:"org"})},
-      {title:"Month-end close", count:"9×", icon:ICONS.agents, go: jump("Agents", {agentId:"monthend"})},
-      {title:"Site visits", count:"7×", icon:ICONS.visits, go: jump("Work", {workSection:"schedules"})}
+      {title:"Pipeline", count:"31×", icon:ICONS.navSales, go: () => { this.setState({paletteOpen:false, query:""}); this.fxGoTo("Sales", "pipeline"); }},
+      {title:"Debtors", count:"24×", icon:ICONS.navFinance, go: () => { this.setState({paletteOpen:false, query:""}); this.fxGoTo("Finance", "debtors"); }},
+      {title:"Floor plan", count:"18×", icon:ICONS.navExhibitors, go: () => { this.setState({paletteOpen:false, query:""}); this.fxGoTo("Exhibitors", "floorplan"); }},
+      {title:"Nova Fertility Clinic", count:"12×", icon:ICONS.orgs, go: () => { this.setState({paletteOpen:false, query:""}); this.fxGoTo("Sales", "pipeline", {kind:"deal", id:"d-nova"}); }},
+      {title:"Presentations", count:"9×", icon:ICONS.navProduction, go: () => { this.setState({paletteOpen:false, query:""}); this.fxGoTo("Production", "presentations"); }},
+      {title:"Approvals", count:"7×", icon:ICONS.approvals, go: jump("Work", {workSection:"approvals"})}
     ];
     const JUMPS = [
       {title:"Home", icon:ICONS.navHome, go: jump("Home")},
@@ -3089,16 +3156,22 @@ export default class PulseLogic extends DCLogic {
     const DIRS_ORDER = ["People","Organisations","Teams","Locations","Site visits"];
     const ADMIN_ORDER = ["Automations","System health","Installed modules"];
     let contextNav, contextHint, searchHint;
-    if (page === "Settings"){
+    if (FX_TABS[page]){
+      const cur = st.fxTab[page] || FX_TABS[page][0][0];
+      contextNav = FX_TABS[page].map(t => seg(t[1], cur === t[0],
+        () => this.setState(prev => ({fxTab: Object.assign({}, prev.fxTab, {[page]: t[0]}), fxDrawer:null}))));
+      contextHint = FX_HINTS[page] || "";
+      searchHint = "Search " + page.toLowerCase();
+    } else if (page === "Settings"){
       contextNav = ADMIN_GROUPS.map(grp => seg(
-        grp[0].charAt(0) + grp[0].slice(1).toLowerCase(),
+        grp[0] === "AI CONTROLS" ? "AI controls" : grp[0].charAt(0) + grp[0].slice(1).toLowerCase(),
         st.adminGroup === grp[0],
         () => this.setState({adminGroup: st.adminGroup === grp[0] ? null : grp[0]}),
         String(ADMIN_CARDS.filter(c => c.group === grp[0]).length)));
-      contextHint = "ADMIN · 13 AREAS";
+      contextHint = "ANTIDOTE EVENTS · SETTINGS";
       searchHint = "Search settings";
     } else if (page === "Activity"){
-      contextNav = [["all","Everything"],["people","People"],["ai","Agents"],["attention",(st.w - (st.railOpen ? 252 : 68)) < 1000 ? "Attention" : "Needs attention"]]
+      contextNav = [["all","Everything"],["people","People"],["ai","Agents"],["systems","Systems"],["attention",(st.w - (st.railOpen ? 252 : 68)) < 1000 ? "Attention" : "Needs attention"]]
         .map(k => seg(k[1], st.actKpi === k[0], () => this.setState({actKpi:k[0]})));
       contextHint = st.actPaused ? "LIVE VIEW PAUSED" : "LIVE · EVENT LOG";
       searchHint = "Search the audit trail";
@@ -3117,7 +3190,7 @@ export default class PulseLogic extends DCLogic {
         seg("Home", page === "Home", () => this.go("Home")),
         seg("Dashboard", page === "Dashboard", () => this.go("Dashboard"))
       ];
-      contextHint = page === "Home" ? "HELIOS · " + openKeys.length + " WAITING" : "CRM · " + areaLabel.toUpperCase();
+      contextHint = page === "Home" ? "PULSE · " + openKeys.length + " PRIORITIES" : "EXECUTIVE · " + areaLabel.toUpperCase();
       searchHint = page === "Dashboard" ? "Search the dashboard" : "Search every record you can see";
     } else if (page === "Agents"){
       contextNav = [];
@@ -3165,13 +3238,24 @@ export default class PulseLogic extends DCLogic {
     // Below these widths the nav keeps its room and the softer furniture gives way:
     // the context hint first, then the search label, then the profile text.
     const roomy = st.w >= 1320, mid = st.w >= 1120;
+    const fxModel = {
+      page, tab: FX_TABS[page] ? (st.fxTab[page] || FX_TABS[page][0][0]) : "",
+      event: st.fxEvent, drawer: st.fxDrawer, acted: st.fxActed,
+      setEvent: this._fxSetEvent || (this._fxSetEvent = (e) => this.setState({fxEvent:e})),
+      goTo: this._fxGoTo || (this._fxGoTo = (pg, tab, drawer) => this.fxGoTo(pg, tab, drawer)),
+      open: this._fxOpen || (this._fxOpen = (kind, id) => this.setState({fxDrawer:{kind, id}})),
+      close: this._fxClose || (this._fxClose = () => this.setState({fxDrawer:null})),
+      act: this._fxActFn || (this._fxActFn = (k, msg) => this.fxAct(k, msg)),
+      toast: this._fxToastFn || (this._fxToastFn = (msg) => this.fxToastMsg(msg))
+    };
     return {
+      fx: fxModel, isFx: !!FX_TABS[page], fxToast: st.fxToast,
       nav, contextNav, contextHint, searchHint, queueTasks,
       isRecords: page === "Records",
       isActivity: page === "Activity",
       act: actModel,
       admin: adminModel,
-      showRecordsWash: page === "Records" && recSec.id !== "ontology",
+      showRecordsWash: page === "Records" && recSec.id !== "ontology" && ["files","contacts"].indexOf(recSec.id) > -1,
       rec: recModel, tree: treeModel, onto: ontoModel, newRec: newRecModel, graph: graphModel,
 
       /* rail */
@@ -3209,7 +3293,10 @@ export default class PulseLogic extends DCLogic {
       widgetChoices: WIDGET_DEFS.filter(w => st.widgets.indexOf(w[0]) < 0)
         .map(w => ({label:w[1], add: () => this.toggleIn("widgets", w[0])})),
       noWidgetChoices: WIDGET_DEFS.every(w => st.widgets.indexOf(w[0]) > -1),
+      askPulse: this._askPulse || (this._askPulse = (q) => this.ask(q)),
+      removeBriefing: () => this.toggleIn("widgets", "briefing"),
       show: {
+        briefing: st.widgets.indexOf("briefing") > -1,
         inbox: st.widgets.indexOf("inbox") > -1, work: st.widgets.indexOf("work") > -1,
         activity: st.widgets.indexOf("activity") > -1, kpi: st.widgets.indexOf("kpi") > -1,
         visits: st.widgets.indexOf("visits") > -1
@@ -3219,30 +3306,31 @@ export default class PulseLogic extends DCLogic {
       removeActivity: () => this.toggleIn("widgets", "activity"),
       removeKpi: () => this.toggleIn("widgets", "kpi"),
       removeVisits: () => this.toggleIn("widgets", "visits"),
-      miniKpis: ["revenue","overdue","jobs","margin"].map(k => {
+      miniKpis: ["revenue","cash","exhibitors","speakers"].map(k => {
         const d = KPI_DEFS[k];
         return {label:d.label, value:d.value, delta:d.delta, deltaColor: d.dir === "up" ? GREEN : RED};
       }),
       visitWidget: [
-        {title:"Boiler service · Casey Builders", when:"Wed 09:00", dot:LIME},
+        {title:"Stand build · RDS", when:"12 Mar", dot:LIME},
         {title:"Pre-install survey · Ó Riain", when:"Wed 14:00", dot:LIME},
-        {title:"Depot check · Ballincollig", when:"Thu 09:00", dot:AMBER}
+        {title:"Staff briefing · RDS", when:"10 Mar", dot:AMBER}
       ],
 
       /* dashboard */
       isDashboard: page === "Dashboard",
-      dashTitle: "Kilbride Group · " + areaLabel,
+      dashTitle: "Future Events · " + areaLabel,
       kpiEdit: st.kpiEdit,
       toggleKpiEdit: () => this.setState(prev => ({kpiEdit: !prev.kpiEdit})),
       kpiEditLabel: st.kpiEdit ? "Done" : "Edit KPIs",
       kpiEditBg: st.kpiEdit ? "var(--on-accent)" : "var(--on-accent-soft)",
       kpiEditBorder: st.kpiEdit ? "var(--on-accent)" : "var(--on-accent-soft)",
       kpiEditColor: st.kpiEdit ? "var(--accent)" : "var(--on-accent)",
-      kpiColumns: String(Math.max(1, st.kpiKeys.length)),
+      kpiColumns: String(st.kpiKeys.length > 5 ? Math.ceil(st.kpiKeys.length / 2) : Math.max(1, st.kpiKeys.length)),
       kpis: st.kpiKeys.map((k, ki) => {
         const d = KPI_DEFS[k];
         const up = d.dir === "up";
-        return {label:d.label, value:this.countValue(d.value, ki), delta:d.delta, hint:d.hint,
+        const raw = (d.ev && st.fxEvent !== "all" && d.ev[st.fxEvent]) || d.value;
+        return {label:d.label, value:this.countValue(raw, ki), delta:st.fxEvent === "all" ? d.delta : "", hint:d.hint,
           bg: "var(--kpi-card)",
           border: "var(--kpi-card)",
           ink: "var(--kpi-ink)",
@@ -3489,7 +3577,7 @@ export default class PulseLogic extends DCLogic {
           buttonLabel: running ? "Pause" : "Start",
           buttonIcon: running ? "M9 5.5v13 M15 5.5v13" : "M7 4.5v15l13-7.5-13-7.5Z",
           toggle: () => this.setState(prev => ({timerRunning: !prev.timerRunning,
-            timerTask: prev.timerTask || "Chase INV-10428 — Dunne & Sons",
+            timerTask: prev.timerTask || "Chase Nova Fertility deposit",
             timerPreset: prev.timerPreset || 25})),
           reset: () => this.setState({timerRunning:false, timerTask:null, timerPreset:null}),
           complete: () => this.setState({timerRunning:false, timerTask:null})
@@ -3675,7 +3763,7 @@ export default class PulseLogic extends DCLogic {
 
       /* mini chat */
       showFab: page !== "Home" && page !== "Agents",
-      fabTitle: st.miniOpen ? "Close Helios" : "Ask Helios",
+      fabTitle: st.miniOpen ? "Close Pulse" : "Ask Pulse",
       fabChatStyle: "position:absolute;inset:0;transition:transform .34s var(--ease),opacity .24s var(--ease);"
         + (st.miniOpen ? "transform:rotate(-90deg) scale(.7);opacity:0" : "transform:none;opacity:1"),
       fabCloseStyle: "position:absolute;inset:0;transition:transform .34s var(--ease),opacity .24s var(--ease);"
@@ -3709,7 +3797,7 @@ export default class PulseLogic extends DCLogic {
       miniEmpty: st.miniThread.length === 0,
       miniGreeting: (() => { const h = new Date().getHours();
         const g = h < 5 ? "Still up" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 22 ? "Good evening" : "Still going";
-        return g + ", Mac"; })(),
+        return g + ", Nikki"; })(),
       miniSuggestions: [
         {label:"What changed today?", run:() => this.askMini("What changed today?")},
         {label:"What needs my decision?", run:() => this.askMini("What needs my decision?")},
@@ -3954,7 +4042,7 @@ export default class PulseLogic extends DCLogic {
         ? "position:absolute;left:0;right:0;top:0;height:76px;z-index:3;pointer-events:none;background:var(--accent)"
         : "display:none",
       headerPillStyle: "display:flex;align-items:center;gap:4px;height:54px;padding:5px;box-sizing:border-box;max-width:100%;min-width:0;overflow:hidden;"
-        + ((contextNav.length <= 6 && (st.w - (st.railOpen ? 252 : 68) - 12) >= 780) ? "" : "width:fit-content;margin:0 auto;")
+        + ((contextNav.length <= 5 && (st.w - (st.railOpen ? 252 : 68) - 12) >= 780) ? "" : "width:fit-content;margin:0 auto;")
         + "background:var(--surface);border:1px solid var(--border);border-radius:999px;"
         + "backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);"
         + "box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 10px 30px rgba(0,0,0,.28)",
@@ -4007,7 +4095,7 @@ export default class PulseLogic extends DCLogic {
       setArrowB: "position:absolute;left:50%;top:50%;margin:-7.5px 0 0 -7.5px;"
         + "transform:translateX(" + (st.setBtnHover ? "0" : "-22px") + ");opacity:" + (st.setBtnHover ? "1" : "0") + ";"
         + "transition:transform .45s cubic-bezier(.22,.9,.16,1) " + (st.setBtnHover ? ".08s" : "0s") + ",opacity .3s var(--ease) " + (st.setBtnHover ? ".08s" : "0s"),
-      showTeam: (st.w - (st.railOpen ? 252 : 68)) >= 1000 || contextNav.length <= 3,
+      showTeam: ((st.w - (st.railOpen ? 252 : 68)) >= 1000 && contextNav.length <= 6) || contextNav.length <= 3,
       showTheme: (st.w - (st.railOpen ? 252 : 68)) >= 820 || contextNav.length <= 3,
       tabPad: (st.w - (st.railOpen ? 252 : 68)) >= 1100 ? "0 18px" : (st.w - (st.railOpen ? 252 : 68)) >= 1000 ? "0 12px" : "0 10px",
       _tabs: (() => { const tight = (st.w - (st.railOpen ? 252 : 68)) < 1000 && contextNav.length >= 4;
@@ -4015,11 +4103,11 @@ export default class PulseLogic extends DCLogic {
       tabsLoose: !((st.w - (st.railOpen ? 252 : 68)) < 1000 && contextNav.length >= 4),
       tabsTight: (st.w - (st.railOpen ? 252 : 68)) < 1000 && contextNav.length >= 4,
       tabActiveBg: ((st.w - (st.railOpen ? 252 : 68)) < 1000 && contextNav.length >= 4) ? "var(--surface-2)" : "none",
-      searchWrapFlex: (contextNav.length <= 6 && (st.w - (st.railOpen ? 252 : 68) - 12) >= 780) ? "1 1 auto" : "0 0 auto",
+      searchWrapFlex: (contextNav.length <= 5 && (st.w - (st.railOpen ? 252 : 68) - 12) >= 780) ? "1 1 auto" : "0 0 auto",
       barLabel: st.barOpen ? "Collapse the bar" : "Expand the bar",
       barChevronStyle: "transition:transform .3s var(--ease);transform:rotate(" + (st.barOpen ? "0deg" : "180deg") + ")",
       toggleBar: () => this.setState(prev => ({barOpen: !prev.barOpen})),
-      showHint: roomy && st.barOpen,
+      showHint: roomy && st.barOpen && contextNav.length <= 5,
       showSearchText: mid && st.barOpen,
       showProfileText: roomy,
       // Tabs size to their own labels; NavThumb measures, so equal tracks aren't needed.
@@ -4038,7 +4126,7 @@ export default class PulseLogic extends DCLogic {
       searchStyle: "height:38px;justify-self:center;min-width:0;" + (mid ? "width:100%;padding:0 8px 0 15px;" : "width:44px;justify-content:center;padding:0;"),
       // The bar is one row: the fewer sub-nav segments a page has, the more of the
       // leftover width the search field takes.
-      searchExpanded: contextNav.length <= 6 && (st.w - (st.railOpen ? 252 : 68) - 12) >= 780,
+      searchExpanded: contextNav.length <= 5 && (st.w - (st.railOpen ? 252 : 68) - 12) >= 780,
       searchBarStyle: (() => {
         const segs = contextNav.length;
         // No min-width floor: when the sub-nav pill group is wide, the search
@@ -4081,8 +4169,9 @@ export default class PulseLogic extends DCLogic {
         const live = st.agents.filter(a => a.state === "working" || a.state === "thinking").length;
         return (live ? live + " AGENTS RUNNING" : "NO AGENTS RUNNING") + " · SYNCED 2 MIN AGO";
       })(),
-      homeSubline: "Ask about any record, job or number you can see.",
-      approvalsPill: openKeys.length + " APPROVALS · €48,120 HELD",
+      homeSubline: "Here\u2019s what needs your attention across Future Events.",
+      approvalsPill: "ALL EVENTS · 5 PRIORITIES · €23,800 OVERDUE",
+      goApprovals: () => this.fxGoTo("Finance", "debtors"),
       showApprovalNote: openKeys.length > 0 && !st.approvalNoteHidden,
       dismissApprovalNote: () => this.setState({approvalNoteHidden:true}),
       /* Home canvas: a decorative layer the user can switch, scoped to the
@@ -4175,24 +4264,9 @@ export default class PulseLogic extends DCLogic {
       }),
       greetingPrefix: (() => {
         const h = new Date().getHours();
-        const pool = h < 5 ? ["Still up","Burning the midnight oil"]
-          : h < 12 ? ["Good morning","Rise and grind","Morning"]
-          : h < 17 ? ["Good afternoon","Afternoon"]
-          : h < 22 ? ["Good evening","Evening"]
-          : ["Still going","Night owl mode"];
-        // A goofy one about 1 in 5 times, otherwise the plain greeting — picked
-        // once per hour and cached, so it doesn't flip on every re-render.
-        const goofy = ["Top of the morning","Look who it is","Well if it isn't"];
-        const bucket = Math.floor(Date.now() / 3600000);
-        if (this._greetBucket !== bucket) {
-          this._greetBucket = bucket;
-          const useGoofy = bucket % 5 === 0;
-          const list = useGoofy ? pool.concat(goofy) : pool;
-          this._greetPick = list[Math.floor(Math.random() * list.length)];
-        }
-        return this._greetPick;
+        return (h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening") + ",";
       })(),
-      greetingName: "Mac",
+      greetingName: "Nikki.",
       flipUnits: this.buildFlipUnits(BODY, INK, LIME),
       enterSettings: (e) => this.hover("__settings", "Settings", "", e),
       leaveSettings: () => this.unhover("__settings"),
@@ -4232,20 +4306,20 @@ export default class PulseLogic extends DCLogic {
           confirmSummary: m.confirmSummary || "",
           confirmHash: "sha256 a4f19c…",
           hasActions: done && m.confirm !== true && !!m.actions,
-          actions:(m.actions || []).map(a => ({label:a[0], bg:a[1] ? LIME : "none", color:a[1] ? "var(--on-accent)" : "var(--ink)", border:a[1] ? LIME : "var(--border)", run:() => this.ask(a[0])}))
+          actions:(m.actions || []).map(a => ({label:a[0], bg:a[1] ? LIME : "none", color:a[1] ? "var(--on-accent)" : "var(--ink)", border:a[1] ? LIME : "var(--border)", run:() => this.runChatAction(a[0])}))
         };
       }),
       suggestions: [
-        {label:"Which organisations are over their limit?", run:() => this.ask("Which organisations are over their credit limit?")},
-        {label:"What is overdue in my work?", run:() => this.ask("Summarise the tasks running late")},
-        {label:"What visits are booked this week?", run:() => this.ask("What site visits are booked this week?")}
+        {label:"Who do I need to chase for money?", run:() => this.ask("Who do I need to chase for money?")},
+        {label:"Who isn't ready for Future Fertility?", run:() => this.ask("Who isn't ready for Future Fertility?")},
+        {label:"What's blocking AV?", run:() => this.ask("Which speaker decks are blocking AV?")}
       ],
       activity: [
-        {who:"Aoife Nolan", what:"raised purchase order PO-4471", event:"core.approval.created", when:"18m", dot:LIME},
-        {who:"Helios", what:"flagged Dunne & Sons payment behaviour", event:"core.notification.created", when:"2h", dot:AMBER},
-        {who:"Tom Walsh", what:"created a depot stock check visit", event:"site-visits.visit.created", when:"Yesterday", dot:NEUTRAL},
-        {who:"Overdue reminder", what:"sent 6 of 10 emails", event:"core.automation.failed", when:"08:00", dot:AMBER},
-        {who:"Dispatcher", what:"dead-lettered 2 Xero deliveries", event:"core.event.dead", when:"02:16", dot:RED}
+        {who:"Revenue Agent", what:"matched €3,750 to Peak Health Labs", event:"finance.payment.matched", when:"08:10", dot:LIME},
+        {who:"Exhibitor Agent", what:"requested missing logo from Peak Health Labs", event:"exhibitor.asset.requested", when:"08:30", dot:LIME},
+        {who:"Production Agent", what:"flagged Dr Brennan deck as overdue", event:"production.deck.overdue", when:"08:45", dot:AMBER},
+        {who:"Kathleen Corr", what:"moved Nova Fertility Clinic to Contract Sent", event:"sales.deal.updated", when:"12 Sep", dot:NEUTRAL},
+        {who:"Xero", what:"updated invoice status", event:"finance.invoice.synced", when:"8m", dot:NEUTRAL}
       ],
       /* Cards, not rows: each one lands on its own spring, newest first, with
          the status colour carried into a soft glow behind its marker. */
@@ -4262,20 +4336,20 @@ export default class PulseLogic extends DCLogic {
       })),
       notifGroups: [["EARLIER TODAY", 0]],
       deployment: [
-        {k:"Client", v:"kilbride", font:MONO},
-        {k:"App name", v:"Kilbride Group Operations", font:"inherit"},
-        {k:"Accent", v:"oklch(0.86 0.19 118)", font:MONO},
-        {k:"Terminology", v:"organisation → Merchant", font:"inherit"},
+        {k:"Client", v:"antidote-events", font:MONO},
+        {k:"App name", v:"Pulse · Future Events", font:"inherit"},
+        {k:"Accent", v:"#D93B35", font:MONO},
+        {k:"Terminology", v:"organisation → Company", font:"inherit"},
         {k:"Locale", v:"EUR · Europe/Dublin", font:"inherit"},
-        {k:"Helios channels", v:"home, whatsapp", font:MONO}
+        {k:"Pulse channels", v:"home, whatsapp", font:MONO}
       ],
       roles: [
-        {name:"Owner", grants:"all core permissions + site-visits:*", scope:"all", users:"1"},
-        {name:"Accounts", grants:"core:organisation:*, core:approval:decide, core:task:*", scope:"all", users:"3"},
-        {name:"Installer", grants:"core:task:view, core:task:update, site-visits:visit:*", scope:"own", users:"9"},
-        {name:"Counter staff", grants:"core:person:view, core:organisation:view", scope:"location", users:"6"}
+        {name:"Owner", grants:"all permissions", scope:"all", users:"1"},
+        {name:"Sales", grants:"deals:*, contracts:*, invoices:view", scope:"all", users:"2"},
+        {name:"Operations", grants:"exhibitors:*, floorplan:*, staff:*", scope:"event", users:"2"},
+        {name:"Production", grants:"speakers:*, sessions:*, av:*", scope:"event", users:"1"}
       ],
-      team: [{i:"AN",bg:"var(--accent)"},{i:"SB",bg:"#9fd6f0"},{i:"TW",bg:"#e6c78a"}],
+      team: [{i:"KC",bg:"#EED7D3"},{i:"RW",bg:"#c9d6f5"},{i:"SK",bg:"#f2c9c4"}],
       paletteOpen: st.paletteOpen, showNotifs: st.showNotifs, query: st.query, draft: st.draft,
       noResults: results.length === 0,
       palScopes, hasQuery: q.length > 0, askPreview: q ? '"' + q + '"' : "",
@@ -4339,17 +4413,17 @@ export default class PulseLogic extends DCLogic {
         + "max-width:" + (st.thread.length && !st.chatRailPinned ? "880px" : "760px") + ";"
         + "transition:max-width .38s var(--ease)",
       composerTools: [
-        {label:"Records", icon:ICONS.navRecords, go: () => this.setState({page:"Records"})},
-        {label:"Files", icon:ICONS.files, go: () => this.setState({page:"Records", recSection:"files"})},
+        {label:"Ontology", icon:ICONS.navRecords, go: () => this.fxGoTo("Records", "ontology")},
+        {label:"Files", icon:ICONS.files, go: () => this.fxGoTo("Records", "files")},
         {label:"Agents", icon:ICONS.navAgents, go: () => this.setState({page:"Agents"})}
       ],
       composerPrompts: [
-        {label:"Chase the three invoices past 60 days", tag:"CASH", icon:ICONS.insights,
-          run: () => this.ask("Chase the three invoices past 60 days")},
-        {label:"Why did the Xero sync fail this morning?", tag:"HEALTH", icon:ICONS.health,
-          run: () => this.ask("Why did the Xero sync fail this morning?")},
-        {label:"Who should cover tomorrow's Ballincollig visit?", tag:"WORK", icon:ICONS.visits,
-          run: () => this.ask("Who should cover tomorrow's Ballincollig visit?")}
+        {label:"Who do I need to chase for money?", tag:"MONEY", icon:ICONS.insights,
+          run: () => this.ask("Who do I need to chase for money?")},
+        {label:"Who isn't ready for Future Fertility?", tag:"EXHIBITORS", icon:ICONS.navExhibitors,
+          run: () => this.ask("Who isn't ready for Future Fertility?")},
+        {label:"How is the Canada Pilot rollout going?", tag:"EVENTS", icon:ICONS.navEvents,
+          run: () => this.ask("How is the Canada Pilot rollout going?")}
       ].map((p, i) => Object.assign(p, {
         rowStyle: "display:flex;align-items:center;gap:13px;width:100%;padding:10px 14px;background:none;border:0;"
           + (i ? "border-top:1px solid var(--border);" : "")

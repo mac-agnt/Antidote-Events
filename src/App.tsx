@@ -6,8 +6,10 @@ import AppShell from "./views/AppShell";
    Any CSS colour works (#hex, rgb(), oklch()). One colour each; the shading
    is worked out for you. */
 const config = {
+  /** Dark theme the app opens in (the light toggle returns here). */
+  theme: "future",
   /** Abstract background behind the Dashboard's KPI band. Hidden in the light theme. */
-  dashboardBackdrop: "#5f8f63",
+  dashboardBackdrop: "#a8332e",
   /** Show the Dashboard background at all. */
   kpiBackdropOn: true,
   /** Wash behind the Records hero (Files and Contacts) and the New record dialog.
